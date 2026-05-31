@@ -1,36 +1,62 @@
 import { Hono } from 'hono';
 import { handle } from 'hono/vercel';
+import { cors } from 'hono/cors';
+import { logger } from 'hono/logger';
+import hiAnimeRoutes from '../src/routes/routes';
+import config from '../src/config/config';
+import { AppError } from '../src/utils/errors';
+import { fail } from '../src/utils/response';
 
 const app = new Hono();
 
-// Simple test endpoint
-app.get('/api/v2/test', (c) => {
-  return c.json({ success: true, message: 'API is working!' });
-});
+// CORS Configuration
+const origins = config.origin.includes(',')
+  ? config.origin.split(',').map(o => o.trim())
+  : config.origin === '*'
+    ? '*'
+    : [config.origin];
 
-// Try to import your actual app with error handling
-let routesLoaded = false;
-try {
-  const hiAnimeRoutes = require('../src/routes/routes').default;
-  app.route('/api/v2', hiAnimeRoutes);
-  routesLoaded = true;
-} catch (err) {
-  app.get('/api/v2/error', (c) => {
-    return c.json({ 
-      success: false, 
-      error: 'Routes failed to load',
-      details: err instanceof Error ? err.message : String(err),
-      stack: err instanceof Error ? err.stack : null
-    });
-  });
+app.use(
+  '*',
+  cors({
+    origin: origins,
+    allowMethods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+    allowHeaders: ['Content-Type', 'Authorization', 'X-Requested-With'],
+    exposeHeaders: ['Content-Length', 'X-Request-Id'],
+    maxAge: 600,
+    credentials: true,
+  })
+);
+
+// Logging
+if (!config.isProduction || config.enableLogging) {
+  app.use('/api/v2/*', logger());
 }
 
-app.get('/api/v2/status', (c) => {
-  return c.json({ 
-    success: true, 
-    routesLoaded,
-    nodeVersion: process.version
+// Health Check
+app.get('/ping', (c) => {
+  return c.json({
+    status: 'ok',
+    timestamp: new Date().toISOString(),
+    environment: 'vercel',
   });
+});
+
+// Routes
+app.route('/api/v2', hiAnimeRoutes);
+
+// Error Handling
+app.onError((err, c) => {
+  if (err instanceof AppError) {
+    return fail(c, err.message, err.statusCode, err.details);
+  }
+
+  console.error('Vercel Unexpected Error:', err.message);
+  return fail(c, 'Internal server error', 500);
+});
+
+app.notFound((c) => {
+  return fail(c, 'Route not found', 404);
 });
 
 export default handle(app);
