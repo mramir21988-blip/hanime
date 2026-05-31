@@ -10,7 +10,7 @@ import { fail } from '../src/utils/response';
 const app = new Hono();
 
 // SAFE CORS Configuration
-const rawOrigin = config?.origin || '*';
+const rawOrigin =  config?.origin || '*' 
 const origins = rawOrigin.includes(',')
   ? rawOrigin.split(',').map(o => o.trim())
   : rawOrigin === '*'
